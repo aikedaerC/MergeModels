@@ -8,7 +8,9 @@ import torchvision.transforms as trans
 from fedml_api.clsimb_fedavg.client import Client
 
 from fedml_api import checkpoint 
-import os 
+import os
+
+from fedml_api.clsimb_fedavg.task_vectors import TaskVector 
 
 class FedAvgAPI(object):
     def __init__(self, dataset, device, args, model_trainer):
@@ -162,6 +164,20 @@ class FedAvgAPI(object):
                 self._global_test(round_idx, cls_num_list)
             elif round_idx % self.args.frequency_of_the_test == 0 and round_idx != 0:
                 self._global_test(round_idx, cls_num_list)
+        
+    def _task_arithmetic(self, pretrained_state_dict, finetuned_state_dict, training_num):
+        # import pdb;pdb.set_trace()
+        task_vectors = [
+            TaskVector(pretrained_state_dict, e[1], fintuned_ratio=e[0]/training_num) for e in finetuned_state_dict
+        ]
+        task_vector_sum = sum(task_vectors)
+
+        scaling_coef_ = 0.3 # the fintuned cof, pretrained cof is (1-scaling_coef)
+
+        image_encoder = task_vector_sum.apply_to(pretrained_state_dict, scaling_coef=scaling_coef_)
+        logging.info('*'*20 + 'scaling_coef:' + str(scaling_coef_) + '*'*20)
+
+        return image_encoder
 
     def _aggregate(self, w_locals, client_ratio=None, global_model=None, client_cls_list=None, round_idx=0):
         training_num = 0
@@ -194,18 +210,8 @@ class FedAvgAPI(object):
                     else:
                         averaged_params[k] += local_model_params[k] * w
         elif global_model is not None:
-            for k in averaged_params.keys():
-                for i in range(0, len(w_locals)):
-                    local_sample_number, local_model_params = w_locals[i]
-                    w = local_sample_number / training_num
-                    if i == 0:
-                        averaged_params[k] = local_model_params[k] * w
-                    else:
-                        YN = self._isLR(averaged_params[k],local_model_params[k])
-                        if not YN:
-                            averaged_params[k] += global_model[k]
-                        else:
-                            averaged_params[k] += local_model_params[k] * w
+            import pdb;pdb.set_trace()
+            averaged_params = self._task_arithmetic(global_model, w_locals, training_num)
 
         return averaged_params
 
