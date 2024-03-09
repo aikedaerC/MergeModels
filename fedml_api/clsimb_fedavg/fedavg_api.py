@@ -202,6 +202,7 @@ class FedAvgAPI(object):
                         averaged_params[k] = local_model_params[k] * w
                     else:
                         YN = self._isLR(averaged_params[k],local_model_params[k])
+                        # YN = True
                         if not YN:
                             averaged_params[k] += global_model[k]
                         else:
