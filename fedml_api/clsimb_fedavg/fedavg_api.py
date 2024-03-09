@@ -198,9 +198,9 @@ class FedAvgAPI(object):
             ratio_training_num += ratio_sample_num
 
             training_num += sample_num
-
-        (sample_num, averaged_params) = copy.deepcopy(w_locals[0])
-        if not self.args.use_lr or global_model is None:
+        fintune = (round_idx >= int(self.args.comm_round * 4/5))
+        averaged_params = copy.deepcopy(global_model)
+        if not self.args.use_lr or not fintune:
             for k in averaged_params.keys():
                 for i in range(0, len(w_locals)):
                     local_sample_number, local_model_params = w_locals[i]
@@ -209,10 +209,13 @@ class FedAvgAPI(object):
                         averaged_params[k] = local_model_params[k] * w
                     else:
                         averaged_params[k] += local_model_params[k] * w
-        elif global_model is not None:
-            import pdb;pdb.set_trace()
-            averaged_params = self._task_arithmetic(global_model, w_locals, training_num)
-
+        else:
+            for k in averaged_params.keys():
+                for i in range(0, len(w_locals)):
+                    local_sample_number, local_model_params = w_locals[i]
+                    w = local_sample_number / training_num
+                    averaged_params[k] = 0.7 * averaged_params[k] + 0.3 * local_model_params[k] * w
+                    
         return averaged_params
 
     def server_estimate_global_distribution(self, averaged_params, global_model, sample_num, client_cls_list, idx):
