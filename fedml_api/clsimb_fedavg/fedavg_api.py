@@ -155,7 +155,7 @@ class FedAvgAPI(object):
 
                 w_locals.append((client.get_sample_number(), copy.deepcopy(w)))
 
-            w_global = self._aggregate(w_locals,global_model=w_global)
+            w_global = self._aggregate(w_locals,global_model=w_global, round_idx=round_idx)
             self.model_trainer.set_model_params(w_global)
 
             if round_idx == self.args.comm_round - 1:
@@ -184,7 +184,8 @@ class FedAvgAPI(object):
             training_num += sample_num
 
         (sample_num, averaged_params) = copy.deepcopy(w_locals[0])
-        if not self.args.use_lr or global_model is None:
+        fintune = (round_idx >= int(self.args.comm_round * 4/5))
+        if not self.args.use_lr:
             for k in averaged_params.keys():
                 for i in range(0, len(w_locals)):
                     local_sample_number, local_model_params = w_locals[i]
@@ -193,7 +194,7 @@ class FedAvgAPI(object):
                         averaged_params[k] = local_model_params[k] * w
                     else:
                         averaged_params[k] += local_model_params[k] * w
-        elif global_model is not None:
+        else:
             for k in averaged_params.keys():
                 for i in range(0, len(w_locals)):
                     local_sample_number, local_model_params = w_locals[i]
@@ -202,9 +203,10 @@ class FedAvgAPI(object):
                         averaged_params[k] = local_model_params[k] * w
                     else:
                         YN = self._isLR(averaged_params[k],local_model_params[k])
-                        # YN = True
+                        if not fintune:
+                            YN = True
                         if not YN:
-                            averaged_params[k] += global_model[k]
+                            averaged_params[k] += global_model[k] * w
                         else:
                             averaged_params[k] += local_model_params[k] * w
 
