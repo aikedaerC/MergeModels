@@ -84,6 +84,7 @@ def add_args(parser):
     parser.add_argument('--contrast', action='store_true', help='contrast learning in weak and strong mode')
     parser.add_argument('--debug', action='store_true', help='do not use wandb')
     parser.add_argument('--use_lr', action='store_true', help='filter linear relative network agg')
+    parser.add_argument('--bn_wise', action='store_true', help='how to agg bn layer')
     parser.add_argument('--pre_epochs', type=int, default=2, help='num of epochs in pre training')
     parser.add_argument('--reverse_weight', type=float, default=0.01, help='combine mdcs loss with lade loss, the mdcs lossweight')
 
@@ -203,8 +204,8 @@ if __name__ == "__main__":
     if args.resume_from: 
         dataset, model, args, device = checkpoint.load_checkpoint(create_model, load_data, logger, args.resume_from)
         # the following need overwrite in checkpoint's args, only in resume mode; immediatly comment these after the start running of resume.
-        args.comm_round = 2100
-        args.name = "C100_plain_FIN"
+        args.comm_round = 80000
+        args.name = "C100_plain_2SingleFIN"
         args.debug=False
         args.contrast=False
         args.count = 10000

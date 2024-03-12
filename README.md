@@ -27,9 +27,9 @@ Actually:
 C100
 ```
 python -u ./main_fedavg.py --comm_round 2100 --epochs 2 --batch_size 64 \
---client_optimizer sgd --lr 0.6 --lr_decay 0.05 --imb_factor 0.02 --dataset cifar100_lt \
+--client_optimizer adam --lr 0.6 --lr_decay 0.05 --imb_factor 0.02 --dataset cifar100_lt \
 --partition_alpha 0.1 --method lade_real_global --frequency_of_the_test 50 --beta 0.8 \
---model resnet32 --client_num_in_total 100 --client_num_per_round 20 --name C100_Last --use_lr --debug
+--model resnet32 --client_num_in_total 100 --client_num_per_round 20 --name C100_plainAdam
 ```
 
 C10
@@ -62,5 +62,5 @@ python -u ./main_fedavg.py --comm_round 2500 --epochs 2 --batch_size 16 \
 
 resume
 ```
-python -u ./main_fedavg.py --resume_from /root/Federated-Long-tailed-Learning/checkpoint/C100_plain/round_1600_global.pth
+python -u ./main_fedavg.py --resume_from /root/Federated-Long-tailed-Learning/checkpoint/C100_plain2Single/round_40000_global.pth
 ```

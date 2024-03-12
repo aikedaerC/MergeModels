@@ -59,10 +59,10 @@ class FedAvgAPI(object):
             # import pdb;pdb.set_trace()
             if rank_matrix < min(matrix.shape):
                 # logging.info("向量线性相关")
-                return True
+                return False
             else:
                 # logging.info("向量线性无关")
-                return False
+                return True
 
     def _setup_clients(self, train_data_local_num_dict, train_data_local_dict, test_data_local_dict, model_trainer):
         logging.info("############setup_clients (START)#############")
@@ -97,7 +97,9 @@ class FedAvgAPI(object):
                     self.args.lr -= (oringin_lr / self.args.comm_round)
             elif self.args.lr_decay > 0:
                 if round_idx == int(self.args.comm_round * 4/5):
-                    self.args.lr = oringin_lr * self.args.lr_decay
+                    self.args.lr = oringin_lr * self.args.lr_decay 
+                # elif round_idx == int(self.args.comm_round * 4/5):
+                #     self.args.lr = oringin_lr * self.args.lr_decay
                 elif "imagenet224" in self.args.dataset and round_idx == int(self.args.comm_round * 9/10) \
                         and self.args.save_load != 3:
                     self.args.lr = self.args.lr * self.args.lr_decay
@@ -194,6 +196,15 @@ class FedAvgAPI(object):
                         averaged_params[k] = local_model_params[k] * w
                     else:
                         averaged_params[k] += local_model_params[k] * w
+        elif self.args.bn_wise:
+            for k in averaged_params.keys():
+                for i in range(0, len(w_locals)):
+                    local_sample_number, local_model_params = w_locals[i]
+                    w = local_sample_number / training_num
+                    if i == 0:
+                        averaged_params[k] = local_model_params[k] * w if "num_batches_tracked" not in k else local_model_params[k]
+                    else:
+                        averaged_params[k] += local_model_params[k] * w if "num_batches_tracked" not in k else local_model_params[k]
         else:
             for k in averaged_params.keys():
                 for i in range(0, len(w_locals)):
