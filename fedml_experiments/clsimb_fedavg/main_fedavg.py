@@ -21,7 +21,8 @@ from fedml_api.model.basic.resnet_gn import *
 from fedml_api.model.basic.resnet import *
 from fedml_api.model.basic.resnet_imagenet import *
 from fedml_api.model.basic.resnet_s import *
-from fedml_api.model.multiexp_model.model import *
+from fedml_api.model.basic.MetaEmbeddingClassifier import *
+# from fedml_api.model.multiexp_model.model import *
 
 from fedml_api.clsimb_fedavg.fedavg_api import FedAvgAPI
 from fedml_api.clsimb_fedavg.my_model_trainer_classification import MyModelTrainer as MyModelTrainerCLS
@@ -85,6 +86,8 @@ def add_args(parser):
     parser.add_argument('--debug', action='store_true', help='do not use wandb')
     parser.add_argument('--use_lr', action='store_true', help='filter linear relative network agg')
     parser.add_argument('--bn_wise', action='store_true', help='how to agg bn layer')
+    parser.add_argument('--fintune', action='store_true', help='finetune with oltr')
+    parser.add_argument('--restart', action='store_true', help='from checkpoint')
     parser.add_argument('--pre_epochs', type=int, default=2, help='num of epochs in pre training')
     parser.add_argument('--reverse_weight', type=float, default=0.01, help='combine mdcs loss with lade loss, the mdcs lossweight')
 
@@ -201,8 +204,13 @@ if __name__ == "__main__":
     parser = add_args(argparse.ArgumentParser(description='Federated_Long-tailed_Learning'))
     args = parser.parse_args()
 
-    if args.resume_from: 
+    model_dict = {}
+    if args.restart: 
         dataset, model, args, device = checkpoint.load_checkpoint(create_model, load_data, logger, args.resume_from)
+        model_dict.update({
+            'feature_model':model,
+            'classifer': None
+        })
         # the following need overwrite in checkpoint's args, only in resume mode; immediatly comment these after the start running of resume.
         args.comm_round = 80000
         args.name = "C100_plain_2SingleFIN"
@@ -210,6 +218,28 @@ if __name__ == "__main__":
         args.contrast=False
         args.count = 10000
         # args.expert_join_time = 3/5
+
+    elif args.fintune:
+        dataset, model, args, device = checkpoint.load_checkpoint(create_model, load_data, logger, args.resume_from)
+        model.KD = True
+        classifer = create_classifer()
+        model_dict.update({
+            'feature_model':model,
+            'classifer': classifer
+        })
+
+        args.comm_round = 3000
+        args.name = "C100_oltr"
+        args.debug=True
+        args.fintune=True
+        args.bn_wise=False
+        args.contrast=False
+        args.count = 10000
+        args.client_num_per_round=2
+        args.method='global' #'lade_real_global'
+        args.use_lr=False
+        args.frequency_of_the_test = 2
+        # import pdb;pdb.set_trace()
 
     else:
         logger.info(args)
@@ -227,6 +257,10 @@ if __name__ == "__main__":
         dataset = load_data(args, args.dataset)
         # create model
         model = create_model(args, model_name=args.model, output_dim=dataset[7])
+        model_dict.update({
+            'feature_model':model,
+            'classifer': None
+        })
 
     if not args.debug:
         wandb.init(
@@ -237,7 +271,7 @@ if __name__ == "__main__":
             config=args
         )
 
-    model_trainer = MyModelTrainerCLS(model, args)
+    model_trainer = MyModelTrainerCLS(model_dict, args)
     fedavgAPI = FedAvgAPI(dataset, device, args, model_trainer)
 
     fedavgAPI.train()

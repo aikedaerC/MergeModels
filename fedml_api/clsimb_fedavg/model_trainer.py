@@ -10,7 +10,8 @@ class ModelTrainer(ABC):
     """
     def __init__(self, model, args=None):
         # TODO: Make args mandatory during initialization
-        self.model = model
+        self.model = model['feature_model']
+        self.classifer = model['classifer']
         self.id = 0
         self.args = args
 

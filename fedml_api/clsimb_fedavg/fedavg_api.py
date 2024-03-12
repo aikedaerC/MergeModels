@@ -74,7 +74,7 @@ class FedAvgAPI(object):
 
     def train(self):
         total_clt_num = self.args.client_num_in_total
-        w_global = self.model_trainer.get_model_params()
+        w_global, cls_global = self.model_trainer.get_model_params()
 
         if "global" in self.args.method:
             total_cls_count = Counter(self.train_global.dataset.target)
@@ -152,13 +152,13 @@ class FedAvgAPI(object):
                                   range(self.class_num)}
 
                     self.model_trainer.set_ltinfo(class_dist=torch.tensor(list(class_dist.values())))
+                
+                feat_w, cls_w = client.train(w_global, cls_global, round=round_idx) 
 
-                w = client.train(w_global, round=round_idx)
+                w_locals.append((client.get_sample_number(), copy.deepcopy(feat_w), copy.deepcopy(cls_w)))
 
-                w_locals.append((client.get_sample_number(), copy.deepcopy(w)))
-
-            w_global = self._aggregate(w_locals,global_model=w_global, round_idx=round_idx)
-            self.model_trainer.set_model_params(w_global)
+            w_global, cls_global = self._aggregate(w_locals,global_model=w_global, round_idx=round_idx)
+            self.model_trainer.set_model_params(w_global, cls_global)
 
             if round_idx == self.args.comm_round - 1:
                 self._global_test(round_idx, cls_num_list)
@@ -175,7 +175,7 @@ class FedAvgAPI(object):
             logging.info("client_ratio", client_ratio)
 
         for idx in range(len(w_locals)):
-            (sample_num, local_params) = w_locals[idx]
+            (sample_num, local_params, local_cls_params) = w_locals[idx]
             # import pdb;pdb.set_trace()
             if ("esti_global" in self.args.method or "contrast" in self.args.method) and self.count < self.args.client_num_in_total:
                 self.server_estimate_global_distribution(local_params, global_model, sample_num, client_cls_list, idx)
@@ -185,17 +185,28 @@ class FedAvgAPI(object):
 
             training_num += sample_num
 
-        (sample_num, averaged_params) = copy.deepcopy(w_locals[0])
+        (sample_num, averaged_params, avg_local_cls_params) = copy.deepcopy(w_locals[0])
         fintune = (round_idx >= int(self.args.comm_round * 4/5))
-        if not self.args.use_lr:
+        if self.args.fintune:
+            logging.info("merge feat_model")
             for k in averaged_params.keys():
                 for i in range(0, len(w_locals)):
-                    local_sample_number, local_model_params = w_locals[i]
+                    local_sample_number, local_model_params,_ = w_locals[i]
                     w = local_sample_number / training_num
                     if i == 0:
                         averaged_params[k] = local_model_params[k] * w
                     else:
                         averaged_params[k] += local_model_params[k] * w
+            logging.info("merge classifer_model")
+            for k in avg_local_cls_params.keys():
+                for i in range(0, len(w_locals)):
+                    local_sample_number, _,local_cls_params = w_locals[i]
+                    w = local_sample_number / training_num
+                    if i == 0:
+                        avg_local_cls_params[k] = local_cls_params[k] * w
+                    else:
+                        avg_local_cls_params[k] += local_cls_params[k] * w
+
         elif self.args.bn_wise:
             for k in averaged_params.keys():
                 for i in range(0, len(w_locals)):
@@ -221,7 +232,7 @@ class FedAvgAPI(object):
                         else:
                             averaged_params[k] += local_model_params[k] * w
 
-        return averaged_params
+        return averaged_params, avg_local_cls_params
 
     def server_estimate_global_distribution(self, averaged_params, global_model, sample_num, client_cls_list, idx):
         classifier_key = list(averaged_params.keys())[-1]
@@ -324,11 +335,12 @@ class FedAvgAPI(object):
                 client_cls_list.append(
                     [client_cls_dic[idx] if idx in client_cls_dic.keys() else 0 for idx in range(self.class_num)])
 
-                w = client.train(w_global)
+                feat_w,cls_w = client.train(w_global, cls_global)
 
-                w_locals.append((client.get_sample_number(), copy.deepcopy(w)))
-            w_global = self._aggregate(w_locals, global_model=w_global, client_cls_list=client_cls_list)
+                w_locals.append((client.get_sample_number(), copy.deepcopy(feat_w), copy.deepcopy(cls_w)))
+            w_global, cls_global = self._aggregate(w_locals, global_model=w_global, client_cls_list=client_cls_list)
             w_old_global = w_global
+            cls_global_old = cls_global
 
         for client_idx in client_indexes:
             client.update_local_dataset(client_idx, self.train_data_local_dict[client_idx],
@@ -342,9 +354,9 @@ class FedAvgAPI(object):
             client_cls_list.append(
                 [client_cls_dic[idx] if idx in client_cls_dic.keys() else 0 for idx in range(self.class_num)])
 
-            w = client.train(w_old_global)
+            feat_w, cls_w = client.train(w_old_global, cls_global_old)
 
-            w_locals.append((client.get_sample_number(), copy.deepcopy(w)))
+            w_locals.append((client.get_sample_number(), copy.deepcopy(feat_w)))
         self._aggregate(w_locals, global_model=w_old_global, client_cls_list=client_cls_list)
 
         self.args.epochs = real_ep
@@ -419,11 +431,11 @@ class FedAvgAPI(object):
 
             self.freeze_layer(train_experts)
 
-            w = client.train(w_global, round=round_idx)
+            feat_w, cls_w = client.train(w_global, None, round=round_idx)
 
             self.freeze_layer()
 
-            w_locals.append((client.get_sample_number(), copy.deepcopy(w)))
+            w_locals.append((client.get_sample_number(), copy.deepcopy(feat_w)))
 
         w_global = self._aggregate(w_locals, global_model=w_global)
         self.model_trainer.set_model_params(w_global)
@@ -653,9 +665,12 @@ class FedAvgAPI(object):
             self.args.esti_cls_num_list = self.esti_cls_num_list
 
         self.args.start_comm_round = round_idx + 1
-        checkpoint_path = os.path.join(self.args.checkpoint_path, self.args.name, f'round_{round_idx}_global.pth')
+        checkpoint_feat_path = os.path.join(self.args.checkpoint_path, self.args.name, f'round_{round_idx}_model.pth')
+        checkpoint_classifer_path = os.path.join(self.args.checkpoint_path, self.args.name, f'round_{round_idx}_classifier.pth')
 
-        checkpoint.save_checkpoint(self.model_trainer.model, self.args, checkpoint_path)
+        checkpoint.save_checkpoint(self.model_trainer.model, self.args, checkpoint_feat_path)
+        if self.args.fintune:
+            checkpoint.save_checkpoint(self.model_trainer.classifer, self.args, checkpoint_classifer_path)
 
 
     #### delete one of samples if there is one redundacy sample, due to the drop_last=True

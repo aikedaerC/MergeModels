@@ -2,11 +2,12 @@ import matplotlib.pyplot as plt
 import torch
 from torchvision.utils import make_grid
 import wandb
-
+from tqdm import tqdm
+import torch.optim as optim
 from .model_trainer import ModelTrainer
 from .lossfns import *
 # from .multi_experts.trainer import Trainer as MultiExTrainer
-from fedml_api.model.multiexp_model.ldam_drw_resnets.expert_resnet_cifar import NormedLinear
+# from fedml_api.model.multiexp_model.ldam_drw_resnets.expert_resnet_cifar import NormedLinear
 
 
 class MyModelTrainer(ModelTrainer):
@@ -20,6 +21,8 @@ class MyModelTrainer(ModelTrainer):
         self.total_cls_num = None
         self.class_range = None
         self.training_exp = None
+        self.criterions = {}
+        self.criterion_weights = {}
 
 
     # for long-tail dataset
@@ -40,13 +43,13 @@ class MyModelTrainer(ModelTrainer):
         wandb.watch(self.model)
 
     def get_model_params(self):
-        return self.model.cpu().state_dict()
+        return self.model.cpu().state_dict(), self.classifer.cpu().state_dict()
 
-    def set_model_params(self, model_parameters):
-        self.model.load_state_dict(model_parameters)
+    def set_model_params(self, model_parameters, classifer_param):
+        self.model.load_state_dict(model_parameters), self.classifer.load_state_dict(classifer_param)
 
     def get_model(self):
-        return self.model
+        return self.model, self.classifer
 
     def set_acc_in_weight(self, cls_acc_metrics, label_smaple_num, device):
 
@@ -55,13 +58,13 @@ class MyModelTrainer(ModelTrainer):
                 cls_acc_metrics[label] = cls_acc_metrics[label] / label_smaple_num[label]
 
         # logging.info("cls_acc_metrics in client" + str(cls_acc_metrics))
-        model_para = self.get_model_params()
+        model_para,_ = self.get_model_params()
         fc_weight = model_para['fc.weight']
 
         for i in range(self.class_num):
             fc_weight[i][0] = cls_acc_metrics[i] * 0.1
 
-        self.set_model_params(model_para)
+        self.set_model_params(model_para, None)
         self.model.to(device)
 
     def train(self, train_data, device, args, alpha=None, cls_num_list=None, round=0):
@@ -70,6 +73,7 @@ class MyModelTrainer(ModelTrainer):
         model.train()
         # import pdb;pdb.set_trace()
         criterion, optimizer = self.train_init(device, cls_num_list, alpha)
+
 
         epoch_loss = []
 
@@ -130,12 +134,7 @@ class MyModelTrainer(ModelTrainer):
                             loss = criterion(log_probs1, labels)
                 else:
                     x, labels = x.to(device), labels.to(device)
-                    log_probs = model(x)
-
-                    # extra_info.update({
-                    #     "logits": logits.transpose(0, 1),
-                    #     "epoch":epoch
-                    # })
+                    log_probs,_ = model(x)
 
                     if "lade" in args.method:
                         perform_loss = criterion["perform"](log_probs, labels)
@@ -165,6 +164,119 @@ class MyModelTrainer(ModelTrainer):
                             label_smaple_num[int(label.item())] += 1
 
             epoch_loss.append(sum(batch_loss) / len(batch_loss))
+
+    def init_optimizers(self, optim_params):
+        optimizer = optim.SGD(optim_params)
+        scheduler = optim.lr_scheduler.StepLR(optimizer,
+                                              step_size=20,
+                                              gamma=0.1)
+        return optimizer, scheduler
+
+    def batch_forward (self, inputs, labels=None, centroids=False, feature_ext=False, phase='train'): 
+        '''
+        This is a general single batch running function. 
+        '''
+
+        # Calculate Features
+        _, self.features = self.model(inputs)
+
+        # If not just extracting features, calculate logits
+        if not feature_ext:
+
+            # During training, calculate centroids if needed to 
+            if phase != 'test':
+                if centroids and 'FeatureLoss' in self.criterions.keys():
+                    self.centroids = self.criterions['FeatureLoss'].centroids.data
+                else:
+                    self.centroids = None
+
+            # Calculate logits with classifier
+            self.logits, self.direct_memory_feature = self.classifer(self.features, self.centroids)
+
+    def batch_backward(self): 
+        # Zero out optimizer gradients
+        self.model_optimizer.zero_grad()
+        if self.criterion_optimizer:
+            self.criterion_optimizer.zero_grad()
+        # Back-propagation from loss outputs
+        self.loss.backward()
+        # Step optimizers
+        self.model_optimizer.step()
+        if self.criterion_optimizer:
+            self.criterion_optimizer.step()
+
+    def batch_loss(self, labels):
+
+        # First, apply performance loss
+        self.loss_perf = self.criterions['PerformanceLoss'](self.logits, labels) \
+                    * self.criterion_weights['PerformanceLoss']
+
+        # Add performance loss to total loss
+        self.loss = self.loss_perf
+
+        # Apply loss on features if set up
+        if 'FeatureLoss' in self.criterions.keys():
+            self.loss_feat = self.criterions['FeatureLoss'](self.features, labels)
+            self.loss_feat = self.loss_feat * self.criterion_weights['FeatureLoss']
+            # Add feature loss to total loss
+            self.loss += self.loss_feat
+
+    def fintune(self, train_data, device, args, alpha=None, cls_num_list=None, round=0):
+        self.model.to(device)
+        self.classifer.to(device)
+        self.model.train()
+        self.classifer.train()
+
+        model_optim_params_list = []
+        model_optim_params_list.append({'params': self.model.parameters(),
+                                            'lr': 0.01,
+                                            'momentum': 0.9,
+                                            'weight_decay': 0.0005})
+        
+        model_optim_params_list.append({'params': self.classifer.parameters(),
+                                            'lr': 0.1,
+                                            'momentum': 0.9,
+                                            'weight_decay': 0.0005})
+        # init optimizer
+        self.model_optimizer, self.model_optimizer_scheduler = self.init_optimizers(model_optim_params_list)
+        
+        # init criterion
+        self.criterions['PerformanceLoss'] = nn.CrossEntropyLoss()
+        self.criterions['FeatureLoss'] = create_loss(feat_dim=64, num_classes=100)
+        self.criterion_weights['PerformanceLoss'] = 1.0
+        self.criterion_weights['FeatureLoss'] = 0.01
+
+        # init centroids
+        self.criterions['FeatureLoss'].centroids.data = self.centroids_cal(train_data, device=device)
+        optim_params = [{'params': self.criterions["FeatureLoss"].parameters(),
+                        'lr': 0.01,
+                        'momentum': 0.9,
+                        'weight_decay': 0.0005}]
+        self.criterion_optimizer, self.criterion_optimizer_scheduler = self.init_optimizers(optim_params)
+
+
+        train_data.dataset.target = train_data.dataset.target.astype(np.int64)
+
+
+        for epoch in range(args.epochs):
+            torch.cuda.empty_cache()
+            # Iterate over dataset
+            for batch_idx, (x, labels) in enumerate(train_data):
+                x, labels = x.to(device), labels.to(device)
+                # inputs, labels = inputs.to(self.device), labels.to(self.device)
+                # If on training phase, enable gradients
+                with torch.set_grad_enabled(True):
+                    # If training, forward with loss, and no top 5 accuracy calculation
+                    self.batch_forward(x, labels, 
+                                       centroids=True,
+                                       phase='train')
+                    self.batch_loss(labels)
+                    self.batch_backward()
+
+            self.model_optimizer_scheduler.step()
+            if self.criterion_optimizer:
+                self.criterion_optimizer_scheduler.step()
+
 
     def train_init(self, device, cls_num_list=None, alpha=None):
         if self.args.client_optimizer == "sgd":
@@ -197,12 +309,47 @@ class MyModelTrainer(ModelTrainer):
             criterion = nn.CrossEntropyLoss().to(device)
 
         return criterion, optimizer
+        
+    def class_count (self, data):
+        labels = np.array(data.dataset.target)
+        class_data_num = []
+        for l in np.unique(labels):
+            class_data_num.append(len(labels[labels == l]))
+        return class_data_num
+
+    def centroids_cal(self, data, device):
+
+        centroids = torch.zeros(self.class_num, 64).cuda()
+
+        print('Calculating centroids.')
+
+        self.model.eval()
+        self.classifer.eval()
+
+        # Calculate initial centroids only on training data.
+        with torch.set_grad_enabled(False):
+            for inputs, labels in data: #tqdm(data):
+                inputs, labels = inputs.to(device), labels.to(device)
+                # Calculate Features of each training data
+                self.batch_forward(inputs, feature_ext=True)
+                # Add all calculated features to center tensor
+                for i in range(len(labels)):
+                    label = labels[i]
+                    centroids[label] += self.features[i]
+
+        # Average summed features with class count
+        centroids /= torch.tensor(data.dataset.get_cls_num_list()).float().unsqueeze(1).cuda()
+
+        return centroids
 
     def test(self, test_data, round_idx, cls_num_list, device, args):
         model = self.model
-
         model.to(device)
         model.eval()
+
+        classifer = self.classifer
+        classifer.to(device)
+        classifer.eval()
 
         criterion2, _ = self.train_init(device, cls_num_list)
 
@@ -257,13 +404,20 @@ class MyModelTrainer(ModelTrainer):
                 else:
                     data = x.to(device)
                     target = target.to(device)
-                    pred = model(data)
+                    # pred, _ = model(data)
+                    self.batch_forward(data, target, 
+                                        centroids=True,
+                                        phase='test')
 
                 if "lade" in self.args.method:
                     pred += torch.log(torch.ones(self.class_num)/self.class_num).to(device)
-                loss = criterion(pred, target)
+                if self.args.fintune:
+                    loss = criterion(self.logits, target)
+                    _, predicted = torch.max(self.logits, -1)
+                else:
+                    loss = criterion(pred, target)
+                    _, predicted = torch.max(pred, -1)
 
-                _, predicted = torch.max(pred, -1)
                 correct = predicted.eq(target).sum()
 
                 metrics['test_correct'] += correct.item()
@@ -319,7 +473,7 @@ class MyModelTrainer(ModelTrainer):
                 else:
                     x = x.to(device)
                     target = target.to(device)
-                    pred = model(x)
+                    pred,_ = model(x)
                     
                 if "lade" in self.args.method:
                     pred += torch.log(torch.ones(self.class_num)/self.class_num).to(device)

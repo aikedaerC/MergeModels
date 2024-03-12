@@ -43,12 +43,15 @@ class Client:
     def get_sample_number(self):
         return self.local_sample_number
 
-    def train(self, w_global, alpha=None, round=0):
-        self.model_trainer.set_model_params(w_global)
-        self.model_trainer.train(self.local_training_data, self.device, self.args, alpha, self.cls_num_list, round=round)
-
-        weights = self.model_trainer.get_model_params()
-        return weights
+    def train(self, w_global, cls_global, alpha=None, round=0):
+        self.model_trainer.set_model_params(w_global, cls_global)
+        if not self.args.fintune:
+            self.model_trainer.train(self.local_training_data, self.device, self.args, alpha, self.cls_num_list, round=round)
+        else: 
+            self.model_trainer.fintune(self.local_training_data, self.device, self.args, alpha, self.cls_num_list, round=round)
+        
+        feat_w, cls_w = self.model_trainer.get_model_params()
+        return feat_w, cls_w
 
     def local_test(self, b_use_test_dataset):
         if b_use_test_dataset in self.args.method:
