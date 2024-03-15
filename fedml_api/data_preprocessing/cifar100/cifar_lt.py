@@ -17,12 +17,16 @@ class IMBALANCECIFAR10(torchvision.datasets.CIFAR10):
     cls_num = 10
 
     def __init__(self, imbalance_ratio=1, root='../data', dataidxs=None, train=True, imb_type='exp',
-                 transform=None, target_transform=None, download=True, contrast=False):
+                 transform=None, target_transform=None, download=True, contrast=False, balance_fin=False):
         mode = "train" if train else "evaluation"
         super(IMBALANCECIFAR10, self).__init__(root, train, transform, target_transform, download)
         self.train = train
         rand_number = random_seed
         self.target = np.array(self.targets)
+        if balance_fin:
+            # imb_type="min_fintune"    # 10 per class
+            imb_type="medium_fintune" # 72 per class
+            # imb_type="max_fintune"    # 500 per class
 
         if self.train:
             # np.random.seed(rand_number)
@@ -62,6 +66,12 @@ class IMBALANCECIFAR10(torchvision.datasets.CIFAR10):
                 img_num_per_cls.append(int(img_max))
             for cls_idx in range(cls_num // 2):
                 img_num_per_cls.append(int(img_max * imb_factor))
+        elif imb_type == 'min_fintune':
+            img_num_per_cls.extend([10] * cls_num)
+        elif imb_type == 'medium_fintune':
+            img_num_per_cls.extend([72] * cls_num)
+        elif imb_type == 'max_fintune':
+            img_num_per_cls.extend([int(img_max)] * cls_num)
         else:
             img_num_per_cls.extend([int(img_max)] * cls_num)
         return img_num_per_cls

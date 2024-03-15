@@ -23,6 +23,7 @@ def load_checkpoint(create_model, load_data, logger, path):
     torch.set_printoptions(threshold=np.inf)
 
     # load dataset
+    args.balance_fintune = True
     dataset = load_data(args, args.dataset)
     # create model
     model = create_model(args, model_name=args.model, output_dim=dataset[7])

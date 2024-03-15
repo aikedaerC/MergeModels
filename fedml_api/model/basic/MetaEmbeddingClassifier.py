@@ -2,7 +2,7 @@ import torch
 import torch.nn as nn
 from .CosNormClassifier import CosNorm_Classifier
 # from utils import *
-
+import numpy as np
 import pdb
 
 class MetaEmbedding_Classifier(nn.Module):
@@ -23,7 +23,7 @@ class MetaEmbedding_Classifier(nn.Module):
         feat_size = x.size(1)
         
         # set up visual memory
-        x_expand = x.clone().unsqueeze(1).expand(-1, self.num_classes, -1)
+        x_expand = x.unsqueeze(1).expand(-1, self.num_classes, -1)
         centroids_expand = centroids.clone().unsqueeze(0).expand(batch_size, -1, -1)
         keys_memory = centroids.clone() 
         
@@ -34,12 +34,13 @@ class MetaEmbedding_Classifier(nn.Module):
         reachability = (scale / values_nn[:, 0]).unsqueeze(1).expand(-1, feat_size)
 
         # computing memory feature by querying and associating visual memory
-        values_memory = self.fc_hallucinator(x.clone())
+        # import pdb;pdb.set_trace()
+        values_memory = self.fc_hallucinator(x)
         values_memory = values_memory.softmax(dim=1) # into probability distribution
         memory_feature = torch.matmul(values_memory, keys_memory)
 
         # computing concept selector
-        concept_selector = self.fc_selector(x.clone())
+        concept_selector = self.fc_selector(x)
         concept_selector = concept_selector.tanh() 
         x = reachability * (direct_feature + concept_selector * memory_feature)
 
@@ -71,15 +72,37 @@ def init_weights(model, weights_path, caffe=False, classifier=False):
     model.load_state_dict(weights)   
     return model
 
-def create_classifer(feat_dim=64, num_classes=100, stage1_weights=False, test=False, *args):
+def load_checkpoint(create_model, path):
+    checkpoint = torch.load(path)
+    args = checkpoint['args']
+
+    # Avoid randomness of cuda, but it will slow down the training
+    if "cifar" in args.dataset:
+        torch.backends.cudnn.benchmark = False
+        torch.backends.cudnn.deterministic = True
+    device = torch.device("cuda:" + str(args.gpu) if torch.cuda.is_available() else "cpu")
+
+    torch.set_printoptions(threshold=np.inf)
+
+    # load dataset
+    # create model
+    model = create_model(args, model_name=args.model, output_dim=100)
+    model.load_state_dict(checkpoint['model'])
+    return model
+
+def create_classifer(feat_dim=64, num_classes=100, stage1_weights=False, test=False, feat_model=None):
     print('Loading Meta Embedding Classifier.')
     clf = MetaEmbedding_Classifier(feat_dim, num_classes)
 
     if not test:
-        if stage1_weights:
-            clf.fc_hallucinator = init_weights(model=clf.fc_hallucinator,
-                                                    weights_path='/root/OpenLongTailRecognition-OLTR/logs/%s/stage1/final_model_checkpoint.pth' % dataset,
-                                                    classifier=True)
+        if stage1_weights and feat_model:
+            # weights = torch.load(weights_path)['model']
+            # import pdb;pdb.set_trace()
+            clf.fc_hallucinator.weight = torch.nn.Parameter(feat_model.fc.weight.detach().clone())
+            clf.fc_hallucinator.bias = torch.nn.Parameter(feat_model.fc.bias.detach().clone())
+            # clf.fc_hallucinator = init_weights(model=clf.fc_hallucinator,
+            #                                         weights_path='/root/OpenLongTailRecognition-OLTR/logs/%s/stage1/final_model_checkpoint.pth' % dataset,
+            #                                         classifier=True)
         else:
             print('Random initialized classifier weights.')
 

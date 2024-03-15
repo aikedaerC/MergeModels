@@ -113,8 +113,8 @@ def load_cifar100_data(args):
 def load_cifar100_lt_data(args):
     train_transform, test_transform = _data_transforms_cifar100(args)
 
-    cifar100_train_ds = IMBALANCECIFAR100(imbalance_ratio=args.imb_factor, root=args.data_dir,  train=True, download=True, transform=train_transform, contrast=args.contrast)
-    cifar100_test_ds = IMBALANCECIFAR100(imbalance_ratio=args.imb_factor, root=args.data_dir, train=False, download=True, transform=test_transform)
+    cifar100_train_ds = IMBALANCECIFAR100(imbalance_ratio=args.imb_factor, root=args.data_dir,  train=True, download=True, transform=train_transform, contrast=args.contrast, balance_fin=args.balance_fintune)
+    cifar100_test_ds = IMBALANCECIFAR100(imbalance_ratio=args.imb_factor, root=args.data_dir, train=False, download=True, transform=test_transform, balance_fin=args.balance_fintune)
 
     return cifar100_train_ds, cifar100_test_ds
 

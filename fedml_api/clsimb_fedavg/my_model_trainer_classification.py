@@ -43,11 +43,15 @@ class MyModelTrainer(ModelTrainer):
         wandb.watch(self.model)
 
     def get_model_params(self):
+        if self.classifer is None:
+            return self.model.cpu().state_dict(), None
         return self.model.cpu().state_dict(), self.classifer.cpu().state_dict()
 
     def set_model_params(self, model_parameters, classifer_param):
-        self.model.load_state_dict(model_parameters), self.classifer.load_state_dict(classifer_param)
-
+        if self.classifer is None:
+            return self.model.load_state_dict(model_parameters), None
+        return self.model.load_state_dict(model_parameters), self.classifer.load_state_dict(classifer_param)
+    
     def get_model(self):
         return self.model, self.classifer
 
@@ -134,7 +138,7 @@ class MyModelTrainer(ModelTrainer):
                             loss = criterion(log_probs1, labels)
                 else:
                     x, labels = x.to(device), labels.to(device)
-                    log_probs,_ = model(x)
+                    log_probs, _ = model(x)
 
                     if "lade" in args.method:
                         perform_loss = criterion["perform"](log_probs, labels)
@@ -319,7 +323,7 @@ class MyModelTrainer(ModelTrainer):
 
     def centroids_cal(self, data, device):
 
-        centroids = torch.zeros(self.class_num, 64).cuda()
+        centroids = torch.zeros(self.class_num, 128).cuda()
 
         print('Calculating centroids.')
 
@@ -347,11 +351,12 @@ class MyModelTrainer(ModelTrainer):
         model.to(device)
         model.eval()
 
-        classifer = self.classifer
-        classifer.to(device)
-        classifer.eval()
+        if self.classifer is not None:
+            classifer = self.classifer
+            classifer.to(device)
+            classifer.eval()
 
-        criterion2, _ = self.train_init(device, cls_num_list)
+        # criterion2, _ = self.train_init(device, cls_num_list)
 
 
         metrics = {
@@ -377,10 +382,10 @@ class MyModelTrainer(ModelTrainer):
                             "logits": logits.transpose(0, 1),
                             "epoch": round_idx
                         })
-                        perform_loss = criterion2["perform"](pred1, labels)
-                        routeweight_loss = criterion2["routeweight"](pred1, labels)
-                        reverse_loss = criterion2["reverse"](output_logits=pred, target=target, extra_info=extra_info)
-                        loss = perform_loss + args.lade_weight * routeweight_loss + args.reverse_weight * reverse_loss
+                        # perform_loss = criterion2["perform"](pred1, labels)
+                        # routeweight_loss = criterion2["routeweight"](pred1, labels)
+                        # reverse_loss = criterion2["reverse"](output_logits=pred, target=target, extra_info=extra_info)
+                        # loss = perform_loss + args.lade_weight * routeweight_loss + args.reverse_weight * reverse_loss
                         
                     else:
                         data = x.to(device)
@@ -389,8 +394,8 @@ class MyModelTrainer(ModelTrainer):
                         pred,logits = model(data)
 
 
-                        perform_loss = criterion2["perform"](pred, target)
-                        routeweight_loss = criterion2["routeweight"](pred, target)
+                        # perform_loss = criterion2["perform"](pred, target)
+                        # routeweight_loss = criterion2["routeweight"](pred, target)
                         pred2 = torch.cat([pred, pred], dim=0)
                         target2 = torch.cat([target, target], dim=0)
                         logits = torch.cat([logits, logits], dim=0)
@@ -399,15 +404,18 @@ class MyModelTrainer(ModelTrainer):
                             "logits": logits.transpose(0, 1),
                             "epoch": round_idx
                         })
-                        reverse_loss = criterion2["reverse"](output_logits=pred2, target=target2, extra_info=extra_info)
-                        loss = perform_loss + args.lade_weight * routeweight_loss + args.reverse_weight * reverse_loss
+                        # reverse_loss = criterion2["reverse"](output_logits=pred2, target=target2, extra_info=extra_info)
+                        # loss = perform_loss + args.lade_weight * routeweight_loss + args.reverse_weight * reverse_loss
                 else:
                     data = x.to(device)
                     target = target.to(device)
-                    # pred, _ = model(data)
-                    self.batch_forward(data, target, 
+                    
+                    if self.args.fintune:
+                        self.batch_forward(data, target, 
                                         centroids=True,
                                         phase='test')
+                    else:
+                        pred, _ = model(data)
 
                 if "lade" in self.args.method:
                     pred += torch.log(torch.ones(self.class_num)/self.class_num).to(device)
@@ -473,12 +481,21 @@ class MyModelTrainer(ModelTrainer):
                 else:
                     x = x.to(device)
                     target = target.to(device)
-                    pred,_ = model(x)
+                    if self.args.fintune:
+                        self.batch_forward(x, target, 
+                                    centroids=True,
+                                    phase='test')
+                    else:
+                        pred, _ = model(x)
                     
                 if "lade" in self.args.method:
                     pred += torch.log(torch.ones(self.class_num)/self.class_num).to(device)
-                loss = criterion(pred, target)
-                _, predicted = torch.max(pred, -1)
+                if self.args.fintune:
+                    loss = criterion(self.logits, target)
+                    _, predicted = torch.max(self.logits, -1)
+                else:
+                    loss = criterion(pred, target)
+                    _, predicted = torch.max(pred, -1)
                 correct = predicted.eq(target).sum()
 
                 metrics['test_correct'] += correct.item()

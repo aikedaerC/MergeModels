@@ -88,6 +88,7 @@ def add_args(parser):
     parser.add_argument('--bn_wise', action='store_true', help='how to agg bn layer')
     parser.add_argument('--fintune', action='store_true', help='finetune with oltr')
     parser.add_argument('--restart', action='store_true', help='from checkpoint')
+    parser.add_argument('--balance_fintune', action='store_true', help='fintune classifier on balanced set')
     parser.add_argument('--pre_epochs', type=int, default=2, help='num of epochs in pre training')
     parser.add_argument('--reverse_weight', type=float, default=0.01, help='combine mdcs loss with lade loss, the mdcs lossweight')
 
@@ -222,23 +223,30 @@ if __name__ == "__main__":
     elif args.fintune:
         dataset, model, args, device = checkpoint.load_checkpoint(create_model, load_data, logger, args.resume_from)
         model.KD = True
-        classifer = create_classifer()
+        fix_feat = True
+        if fix_feat:
+            for param_name, param in model.named_parameters():
+                param.requires_grad = False
+
+        classifer = create_classifer(stage1_weights=True, feat_model=model)
         model_dict.update({
             'feature_model':model,
             'classifer': classifer
         })
 
-        args.comm_round = 3000
-        args.name = "C100_oltr"
-        args.debug=True
+        args.comm_round = 5000
+        args.name = "C100_oltr_with_fix_fc"
+        args.debug=False
         args.fintune=True
         args.bn_wise=False
         args.contrast=False
         args.count = 10000
-        args.client_num_per_round=2
+        args.client_num_per_round=20
         args.method='global' #'lade_real_global'
         args.use_lr=False
-        args.frequency_of_the_test = 2
+        args.frequency_of_the_test = 50
+        args.epochs = 2 # 2
+        args.balance_fintune = False #True
         # import pdb;pdb.set_trace()
 
     else:

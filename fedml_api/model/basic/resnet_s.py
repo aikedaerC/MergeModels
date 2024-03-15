@@ -114,11 +114,12 @@ class ResNet_s(nn.Module):
         self.layer1 = self._make_layer(block, 16, num_blocks[0], stride=1)
         self.layer2 = self._make_layer(block, 32, num_blocks[1], stride=2)
         self.layer3 = self._make_layer(block, 64, num_blocks[2], stride=2)
+        self.layer4 = self._make_layer(block, 128, 1, stride=2) 
         self.avgpool = nn.AdaptiveAvgPool2d((1, 1))
         if use_norm:
-            self.fc = NormedLinear(64, num_classes)
+            self.fc = NormedLinear(128, num_classes)
         else:
-            self.fc = nn.Linear(64, num_classes)
+            self.fc = nn.Linear(128, num_classes)
         self.apply(_weights_init)
 
         self.KD = KD
@@ -136,8 +137,8 @@ class ResNet_s(nn.Module):
         out = F.relu(self.bn1(self.conv1(x)))
         out = self.layer1(out)
         out = self.layer2(out)
-
         out = self.layer3(out)
+        out = self.layer4(out)
         out = self.avgpool(out)
         # out = F.avg_pool2d(out, out.size()[3])
         feats = out.view(out.size(0), -1)
@@ -176,7 +177,7 @@ def resnet20():
 
 
 def resnet32(args, num_classes=10, use_norm=False): 
-    return ResNet_s(BasicBlock, [5, 5, 5], num_classes=num_classes, use_norm=use_norm, KD=args.contrast)
+    return ResNet_s(BasicBlock, [5, 5, 5], num_classes=num_classes, use_norm=use_norm, KD=True)
 
 def resnet44():
     return ResNet_s(BasicBlock, [7, 7, 7])

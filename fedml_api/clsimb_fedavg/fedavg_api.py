@@ -157,7 +157,7 @@ class FedAvgAPI(object):
 
                 w_locals.append((client.get_sample_number(), copy.deepcopy(feat_w), copy.deepcopy(cls_w)))
 
-            w_global, cls_global = self._aggregate(w_locals,global_model=w_global, round_idx=round_idx)
+            w_global, cls_global = self._aggregate(w_locals, global_model=w_global, round_idx=round_idx)
             self.model_trainer.set_model_params(w_global, cls_global)
 
             if round_idx == self.args.comm_round - 1:
@@ -219,7 +219,7 @@ class FedAvgAPI(object):
         else:
             for k in averaged_params.keys():
                 for i in range(0, len(w_locals)):
-                    local_sample_number, local_model_params = w_locals[i]
+                    local_sample_number, local_model_params, _ = w_locals[i]
                     w = local_sample_number / training_num
                     if i == 0:
                         averaged_params[k] = local_model_params[k] * w
