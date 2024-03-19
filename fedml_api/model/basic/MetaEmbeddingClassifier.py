@@ -36,12 +36,12 @@ class MetaEmbedding_Classifier(nn.Module):
         # computing memory feature by querying and associating visual memory
         # import pdb;pdb.set_trace()
         values_memory = self.fc_hallucinator(x)
-        values_memory = values_memory.softmax(dim=1) # into probability distribution
-        memory_feature = torch.matmul(values_memory, keys_memory)
+        values_memory = values_memory.softmax(dim=1) # into probability distribution in [0,1]
+        memory_feature = torch.matmul(values_memory, keys_memory) # filter some memory feature
 
         # computing concept selector
         concept_selector = self.fc_selector(x)
-        concept_selector = concept_selector.tanh() 
+        concept_selector = concept_selector.tanh()
         x = reachability * (direct_feature + concept_selector * memory_feature)
 
         # storing infused feature
@@ -90,7 +90,7 @@ def load_checkpoint(create_model, path):
     model.load_state_dict(checkpoint['model'])
     return model
 
-def create_classifer(feat_dim=64, num_classes=100, stage1_weights=False, test=False, feat_model=None):
+def create_classifer(feat_dim=128, num_classes=100, stage1_weights=False, test=False, feat_model=None):
     print('Loading Meta Embedding Classifier.')
     clf = MetaEmbedding_Classifier(feat_dim, num_classes)
 

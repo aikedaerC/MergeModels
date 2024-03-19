@@ -246,12 +246,12 @@ class MyModelTrainer(ModelTrainer):
         
         # init criterion
         self.criterions['PerformanceLoss'] = nn.CrossEntropyLoss()
-        self.criterions['FeatureLoss'] = create_loss(feat_dim=64, num_classes=100)
+        self.criterions['FeatureLoss'] = create_loss(feat_dim=128, num_classes=100)
         self.criterion_weights['PerformanceLoss'] = 1.0
         self.criterion_weights['FeatureLoss'] = 0.01
 
         # init centroids
-        self.criterions['FeatureLoss'].centroids.data = self.centroids_cal(train_data, device=device)
+        self.criterions['FeatureLoss'].centroids.data = self.centroids_cal(train_data, device=device) 
         optim_params = [{'params': self.criterions["FeatureLoss"].parameters(),
                         'lr': 0.01,
                         'momentum': 0.9,
@@ -277,6 +277,8 @@ class MyModelTrainer(ModelTrainer):
                     self.batch_loss(labels)
                     self.batch_backward()
 
+            # update centroids per epoch
+            self.criterions['FeatureLoss'].centroids.data = self.centroids_cal(train_data, device=device) 
             self.model_optimizer_scheduler.step()
             if self.criterion_optimizer:
                 self.criterion_optimizer_scheduler.step()

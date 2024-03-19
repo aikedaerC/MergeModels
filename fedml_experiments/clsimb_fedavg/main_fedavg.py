@@ -223,7 +223,7 @@ if __name__ == "__main__":
     elif args.fintune:
         dataset, model, args, device = checkpoint.load_checkpoint(create_model, load_data, logger, args.resume_from)
         model.KD = True
-        fix_feat = True
+        fix_feat = False
         if fix_feat:
             for param_name, param in model.named_parameters():
                 param.requires_grad = False
@@ -235,13 +235,13 @@ if __name__ == "__main__":
         })
 
         args.comm_round = 5000
-        args.name = "C100_oltr_with_fix_fc"
+        args.name = "CP100_oltr_wo_fix_fc"
         args.debug=False
         args.fintune=True
         args.bn_wise=False
         args.contrast=False
         args.count = 10000
-        args.client_num_per_round=20
+        args.client_num_per_round= 20
         args.method='global' #'lade_real_global'
         args.use_lr=False
         args.frequency_of_the_test = 50

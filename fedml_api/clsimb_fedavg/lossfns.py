@@ -596,7 +596,7 @@ class LADELoss(nn.Module):
         self.prior = self.prior.to(y_pred.get_device())
         self.balanced_prior = self.balanced_prior.to(y_pred.get_device())
         self.cls_weight = self.cls_weight.to(y_pred.get_device())
-        per_cls_pred_spread = y_pred.T * (target == torch.arange(0, self.num_classes).view(-1, 1).type_as(target))  # C x N
+        per_cls_pred_spread = y_pred.T * (target == torch.arange(0, self.num_classes).view(-1, 1).type_as(target))  # C x N one hot encoding filter
         pred_spread = (y_pred - torch.log(self.prior + 1e-9) + torch.log(self.balanced_prior + 1e-9)).T  # C x N
 
         num_samples_per_cls = torch.sum(target == torch.arange(0, self.num_classes).view(-1, 1).type_as(target), -1).float()  # C
