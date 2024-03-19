@@ -1,5 +1,6 @@
 # Federated-Long-tailed-Learning
 
+git checkout OLTR
 
 ## Run
 
