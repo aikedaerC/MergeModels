@@ -231,7 +231,7 @@ if __name__ == "__main__":
     if not args.debug:
         wandb.init(
             project="Federated_Long-tailed_Learning",
-            entity="hongdachen",
+            entity="holye",
             name= str(args.name) + str(args.method) + "-r " + str(args.comm_round) + str(args.dataset) + str(args.partition_method) +
                 "-factor" + str(args.imb_factor),
             config=args
